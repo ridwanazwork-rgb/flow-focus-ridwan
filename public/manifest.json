@@ -1,0 +1,31 @@
+{
+  "name": "Focus Flow",
+  "short_name": "FocusFlow",
+  "description": "Aplikasi manajemen tugas offline dengan prioritas waktu",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#f9fafb",
+  "theme_color": "#4f46e5",
+  "orientation": "portrait",
+  "icons": [
+    {
+      "src": "https://cdn.jsdelivr.net/npm/emoji-datasource-apple/img/apple/64/270f-fe0f.png",
+      "sizes": "64x64",
+      "type": "image/png"
+    },
+    {
+      "src": "https://cdn.jsdelivr.net/npm/emoji-datasource-apple/img/apple/64/1f4dd.png",
+      "sizes": "128x128",
+      "type": "image/png"
+    }
+  ],
+  "categories": ["productivity", "utilities"],
+  "shortcuts": [
+    {
+      "name": "Tambah Tugas",
+      "short_name": "Tambah",
+      "description": "Tambah tugas baru",
+      "url": "/?new=true"
+    }
+  ]
+}
