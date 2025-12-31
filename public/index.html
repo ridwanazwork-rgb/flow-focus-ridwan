@@ -1,0 +1,497 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Focus Flow - Task Manager</title>
+    <meta name="theme-color" content="#4f46e5">
+    <meta name="description" content="Aplikasi manajemen tugas dengan sistem prioritas waktu">
+    
+    <!-- PWA -->
+    <link rel="manifest" href="/manifest.json">
+    <link rel="icon" href="data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 100 100%22><text y=%22.9em%22 font-size=%2290%22>📝</text></svg>">
+    
+    <!-- Styles -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body { font-family: 'Inter', sans-serif; background: #f9fafb; }
+        
+        /* PWA Install Button */
+        #installButton {
+            animation: pulse 2s infinite;
+        }
+        @keyframes pulse {
+            0% { transform: scale(1); }
+            50% { transform: scale(1.05); }
+            100% { transform: scale(1); }
+        }
+        
+        /* Offline Indicator */
+        .offline-badge {
+            animation: blink 1.5s infinite;
+        }
+        @keyframes blink {
+            0%, 100% { opacity: 1; }
+            50% { opacity: 0.5; }
+        }
+    </style>
+</head>
+<body>
+    <div id="root"></div>
+    
+    <!-- Load React -->
+    <script crossorigin src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
+    <script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
+    
+    <!-- Load Babel untuk JSX -->
+    <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+    
+    <!-- Load Lucide Icons -->
+    <script src="https://unpkg.com/lucide@latest/dist/umd/lucide.js"></script>
+    
+    <!-- Main App -->
+    <script type="text/babel" data-presets="react">
+        // ==================== ICOONS ====================
+        // Simpan icon dulu ke window
+        const Icons = {
+            Plus: () => '➕',
+            Trash2: () => '🗑️',
+            Check: () => '✅',
+            Calendar: () => '📅',
+            Edit2: () => '✏️',
+            AlertCircle: () => '⚠️',
+            Clock: () => '⏰',
+            X: () => '✕',
+            Settings: () => '⚙️',
+            CheckCircle2: () => '✔️',
+            Eye: () => '👁️',
+            EyeOff: () => '👁️‍🗨️',
+            ArrowRightLeft: () => '🔄',
+            ArrowUpDown: () => '↕️',
+            Download: () => '📥',
+            Wifi: () => '📶',
+            WifiOff: () => '📵'
+        };
+        
+        // ==================== APP KOMPONEN ====================
+        function App() {
+            const [todos, setTodos] = React.useState(() => {
+                const saved = localStorage.getItem('todos_v17');
+                return saved ? JSON.parse(saved) : {
+                    today: [], overdue: [], thisWeek: [], planned: [], someday: []
+                };
+            });
+            
+            const [taskCategories, setTaskCategories] = React.useState(() => {
+                const saved = localStorage.getItem('taskCats_v17');
+                return saved ? JSON.parse(saved) : [
+                    { id: 'personal', name: 'Personal', color: 'bg-blue-500' },
+                    { id: 'work', name: 'Work', color: 'bg-purple-500' }
+                ];
+            });
+            
+            const [showCompleted, setShowCompleted] = React.useState(true);
+            const [showCategoryManager, setShowCategoryManager] = React.useState(false);
+            const [sortBy, setSortBy] = React.useState('manual');
+            const [editingId, setEditingId] = React.useState(null);
+            const [editData, setEditData] = React.useState({ text: '', when: '', deadline: '' });
+            
+            // PWA States
+            const [isOnline, setIsOnline] = React.useState(navigator.onLine);
+            const [showInstallPrompt, setShowInstallPrompt] = React.useState(false);
+            const [deferredPrompt, setDeferredPrompt] = React.useState(null);
+            
+            const timeGroups = [
+                { id: 'today', label: 'Hari Ini', icon: Icons.Calendar, highlight: 'today', alwaysShow: true },
+                { id: 'overdue', label: 'Terlambat', icon: Icons.AlertCircle, highlight: 'overdue' },
+                { id: 'thisWeek', label: 'Minggu Ini', icon: Icons.Calendar },
+                { id: 'planned', label: 'Terencana', icon: Icons.Clock },
+                { id: 'someday', label: 'Kapan-kapan', icon: Icons.Calendar }
+            ];
+            
+            // PWA Setup
+            React.useEffect(() => {
+                // Simpan data
+                localStorage.setItem('todos_v17', JSON.stringify(todos));
+                localStorage.setItem('taskCats_v17', JSON.stringify(taskCategories));
+                
+                // Online/Offline
+                const handleOnline = () => setIsOnline(true);
+                const handleOffline = () => setIsOnline(false);
+                
+                window.addEventListener('online', handleOnline);
+                window.addEventListener('offline', handleOffline);
+                
+                // Install Prompt
+                window.addEventListener('beforeinstallprompt', (e) => {
+                    e.preventDefault();
+                    setDeferredPrompt(e);
+                    setShowInstallPrompt(true);
+                });
+                
+                // Cek jika sudah diinstall
+                if (window.matchMedia('(display-mode: standalone)').matches) {
+                    console.log('Running as PWA');
+                }
+                
+                return () => {
+                    window.removeEventListener('online', handleOnline);
+                    window.removeEventListener('offline', handleOffline);
+                };
+            }, [todos, taskCategories]);
+            
+            const getCategoryByDate = (date) => {
+                if (!date) return 'someday';
+                const today = new Date(); today.setHours(0,0,0,0);
+                const target = new Date(date); target.setHours(0,0,0,0);
+                const diff = Math.ceil((target - today) / (1000 * 60 * 60 * 24));
+                if (diff < 0) return 'overdue';
+                if (diff === 0) return 'today';
+                if (diff <= 7) return 'thisWeek';
+                return 'planned';
+            };
+            
+            const toggleSort = () => {
+                if (sortBy === 'manual') setSortBy('when');
+                else if (sortBy === 'when') setSortBy('deadline');
+                else setSortBy('manual');
+            };
+            
+            const getProcessedTasks = (groupKey) => {
+                let tasks = [...todos[groupKey]];
+                if (!showCompleted) tasks = tasks.filter(t => !t.completed);
+                
+                if (sortBy === 'when') {
+                    tasks.sort((a, b) => (a.when || '9999-12-31').localeCompare(b.when || '9999-12-31'));
+                } else if (sortBy === 'deadline') {
+                    tasks.sort((a, b) => (a.deadline || '9999-12-31').localeCompare(b.deadline || '9999-12-31'));
+                }
+                return tasks;
+            };
+            
+            const addTask = (text, categoryId, when, deadline) => {
+                if (!text.trim() || !categoryId) return;
+                const selCat = taskCategories.find(c => c.id === categoryId);
+                const group = getCategoryByDate(when);
+                const newTask = {
+                    id: `task-${Date.now()}`,
+                    text,
+                    completed: false,
+                    when: when || null,
+                    originalWhen: when || null,
+                    deadline: deadline || null,
+                    catName: selCat.name,
+                    catColor: selCat.color,
+                    categoryId: selCat.id
+                };
+                setTodos(prev => ({ ...prev, [group]: [newTask, ...prev[group]] }));
+            };
+            
+            const handleInstall = async () => {
+                if (deferredPrompt) {
+                    deferredPrompt.prompt();
+                    const { outcome } = await deferredPrompt.userChoice;
+                    if (outcome === 'accepted') {
+                        console.log('User installed PWA');
+                    }
+                    setDeferredPrompt(null);
+                    setShowInstallPrompt(false);
+                }
+            };
+            
+            return (
+                <div className="min-h-screen bg-gray-50 text-slate-900 pb-64">
+                    {/* PWA Status Bar */}
+                    {!isOnline && (
+                        <div className="fixed top-0 left-0 right-0 z-50 bg-yellow-500 text-white p-2 text-center text-xs font-bold offline-badge">
+                            📵 Mode Offline - Data aman tersimpan
+                        </div>
+                    )}
+                    
+                    {showInstallPrompt && (
+                        <div className="fixed top-0 left-0 right-0 z-50 bg-gradient-to-r from-indigo-600 to-purple-600 text-white p-3 text-center shadow-lg">
+                            <div className="max-w-2xl mx-auto flex justify-between items-center">
+                                <span className="text-sm font-semibold">📱 Install Focus Flow?</span>
+                                <div className="flex gap-2">
+                                    <button 
+                                        onClick={handleInstall}
+                                        className="bg-white text-indigo-600 px-4 py-1 rounded-lg font-bold text-sm shadow-md"
+                                    >
+                                        Install
+                                    </button>
+                                    <button 
+                                        onClick={() => setShowInstallPrompt(false)}
+                                        className="text-white/80 hover:text-white"
+                                    >
+                                        ✕
+                                    </button>
+                                </div>
+                            </div>
+                        </div>
+                    )}
+                    
+                    {/* Header */}
+                    <nav className={`bg-white border-b shadow-sm px-4 py-4 ${!isOnline || showInstallPrompt ? 'mt-8' : ''}`}>
+                        <div className="max-w-2xl mx-auto flex justify-between items-center">
+                            <div className="flex items-center gap-2">
+                                <span className="text-2xl">✔️</span>
+                                <h1 className="text-xl font-bold">Focus Flow</h1>
+                                {!isOnline && <span className="text-xs bg-yellow-100 text-yellow-800 px-2 py-1 rounded">Offline</span>}
+                            </div>
+                            <div className="flex gap-2">
+                                <button onClick={toggleSort} className="p-2 bg-gray-100 rounded-lg">
+                                    {sortBy === 'manual' ? '↕️' : sortBy === 'when' ? '📅' : '⏰'}
+                                </button>
+                                <button onClick={() => setShowCompleted(!showCompleted)} className="p-2 bg-gray-100 rounded-lg">
+                                    {showCompleted ? '👁️' : '👁️‍🗨️'}
+                                </button>
+                                <button onClick={() => setShowCategoryManager(!showCategoryManager)} className="p-2 bg-gray-100 rounded-lg">
+                                    ⚙️
+                                </button>
+                            </div>
+                        </div>
+                    </nav>
+                    
+                    {/* Main Content */}
+                    <main className="max-w-2xl mx-auto p-4 space-y-6 mt-4">
+                        {timeGroups.map(group => {
+                            const tasks = getProcessedTasks(group.id);
+                            if (tasks.length === 0 && !group.alwaysShow) return null;
+                            
+                            const isToday = group.id === 'today';
+                            const isOverdue = group.id === 'overdue';
+                            
+                            return (
+                                <div key={group.id} className={`rounded-xl p-3 ${isToday ? 'bg-blue-50 border border-blue-100' : isOverdue ? 'bg-red-50 border border-red-100' : 'bg-white border border-gray-200'}`}>
+                                    <div className="flex items-center gap-2 mb-3">
+                                        <span>{group.icon()}</span>
+                                        <h3 className={`text-xs font-bold uppercase ${isToday ? 'text-blue-600' : isOverdue ? 'text-red-600' : 'text-gray-500'}`}>
+                                            {group.label}
+                                        </h3>
+                                        <div className="flex-1 border-t border-gray-200"></div>
+                                        <span className="text-xs bg-gray-100 px-2 py-1 rounded-full">{tasks.length}</span>
+                                    </div>
+                                    
+                                    {tasks.length > 0 ? (
+                                        <div className="space-y-2">
+                                            {tasks.map(task => (
+                                                <TaskItem 
+                                                    key={task.id}
+                                                    task={task}
+                                                    onToggle={() => {
+                                                        setTodos(prev => ({
+                                                            ...prev,
+                                                            [group.id]: prev[group.id].map(t => 
+                                                                t.id === task.id ? {...t, completed: !t.completed} : t
+                                                            )
+                                                        }));
+                                                    }}
+                                                    onDelete={() => {
+                                                        setTodos(prev => ({
+                                                            ...prev,
+                                                            [group.id]: prev[group.id].filter(t => t.id !== task.id)
+                                                        }));
+                                                    }}
+                                                />
+                                            ))}
+                                        </div>
+                                    ) : group.id === 'today' && (
+                                        <div className="text-center py-8 text-gray-400 italic">
+                                            "Tambahkan tugas untuk hari ini"
+                                        </div>
+                                    )}
+                                </div>
+                            );
+                        })}
+                    </main>
+                    
+                    {/* Quick Add Form */}
+                    <QuickAdd categories={taskCategories} onAdd={addTask} />
+                    
+                    {/* Install Button */}
+                    {showInstallPrompt && (
+                        <button
+                            onClick={handleInstall}
+                            className="fixed bottom-24 right-4 bg-gradient-to-r from-green-500 to-emerald-600 text-white p-4 rounded-full shadow-xl"
+                            id="installButton"
+                        >
+                            📥 Install App
+                        </button>
+                    )}
+                </div>
+            );
+        }
+        
+        function TaskItem({ task, onToggle, onDelete }) {
+            const [confirmDelete, setConfirmDelete] = React.useState(false);
+            
+            React.useEffect(() => {
+                if (confirmDelete) {
+                    const timer = setTimeout(() => setConfirmDelete(false), 3000);
+                    return () => clearTimeout(timer);
+                }
+            }, [confirmDelete]);
+            
+            return (
+                <div className={`bg-white border rounded-lg p-3 flex items-center gap-3 ${task.completed ? 'opacity-60' : ''}`}>
+                    <button 
+                        onClick={onToggle}
+                        className={`w-6 h-6 rounded border flex items-center justify-center ${task.completed ? 'bg-green-500 border-green-500 text-white' : 'border-gray-300'}`}
+                    >
+                        {task.completed && '✓'}
+                    </button>
+                    
+                    <div className="flex-1">
+                        <div className="flex items-center gap-2">
+                            <span className={`w-5 h-5 rounded-full ${task.catColor} flex items-center justify-center text-xs text-white font-bold`}>
+                                {task.catName.charAt(0)}
+                            </span>
+                            <span className={`font-medium ${task.completed ? 'line-through text-gray-400' : ''}`}>
+                                {task.text}
+                            </span>
+                        </div>
+                        
+                        {(task.when || task.deadline) && (
+                            <div className="flex gap-2 mt-1 ml-7 text-xs">
+                                {task.when && (
+                                    <span className="text-gray-500">
+                                        📅 {new Date(task.when).toLocaleDateString('id-ID')}
+                                    </span>
+                                )}
+                                {task.deadline && (
+                                    <span className="text-red-500 font-bold">
+                                        ⚠️ {new Date(task.deadline).toLocaleDateString('id-ID')}
+                                    </span>
+                                )}
+                            </div>
+                        )}
+                    </div>
+                    
+                    <div className="flex gap-1">
+                        <button className="p-1 text-gray-400">✏️</button>
+                        {confirmDelete ? (
+                            <button 
+                                onClick={onDelete}
+                                className="bg-red-500 text-white px-2 py-1 text-xs rounded"
+                            >
+                                HAPUS?
+                            </button>
+                        ) : (
+                            <button 
+                                onClick={() => setConfirmDelete(true)}
+                                className="p-1 text-gray-400 hover:text-red-500"
+                            >
+                                🗑️
+                            </button>
+                        )}
+                    </div>
+                </div>
+            );
+        }
+        
+        function QuickAdd({ categories, onAdd }) {
+            const [text, setText] = React.useState('');
+            const [cat, setCat] = React.useState('');
+            const [when, setWhen] = React.useState('');
+            const [deadline, setDeadline] = React.useState('');
+            
+            const submit = () => {
+                if (!text.trim() || !cat) return;
+                onAdd(text, cat, when, deadline);
+                setText('');
+                setWhen('');
+                setDeadline('');
+            };
+            
+            return (
+                <div className="fixed bottom-0 left-0 right-0 p-4 bg-gradient-to-t from-white via-white to-transparent">
+                    <div className="max-w-2xl mx-auto bg-white rounded-2xl shadow-2xl border p-4">
+                        <div className="flex gap-2 mb-3">
+                            <select 
+                                value={cat}
+                                onChange={e => setCat(e.target.value)}
+                                className="bg-gray-100 rounded-lg px-3 py-2 text-sm flex-1 outline-none"
+                            >
+                                <option value="">Pilih Kategori</option>
+                                {categories.map(c => (
+                                    <option key={c.id} value={c.id}>{c.name}</option>
+                                ))}
+                            </select>
+                            <input 
+                                type="text"
+                                value={text}
+                                onChange={e => setText(e.target.value)}
+                                onKeyDown={e => e.key === 'Enter' && submit()}
+                                placeholder="Tulis tugas..."
+                                className="bg-gray-100 rounded-lg px-3 py-2 text-sm flex-2 outline-none"
+                            />
+                        </div>
+                        
+                        <div className="flex gap-3 mb-3">
+                            <div className="flex-1">
+                                <label className="text-xs text-gray-500 block mb-1">Jadwal</label>
+                                <input 
+                                    type="date"
+                                    value={when}
+                                    onChange={e => setWhen(e.target.value)}
+                                    className="w-full bg-gray-100 rounded-lg px-3 py-2 text-sm"
+                                />
+                            </div>
+                            <div className="flex-1">
+                                <label className="text-xs text-red-500 block mb-1">Deadline</label>
+                                <input 
+                                    type="date"
+                                    value={deadline}
+                                    onChange={e => setDeadline(e.target.value)}
+                                    className="w-full bg-gray-100 rounded-lg px-3 py-2 text-sm text-red-500"
+                                />
+                            </div>
+                        </div>
+                        
+                        <button
+                            onClick={submit}
+                            disabled={!text.trim() || !cat}
+                            className={`w-full py-3 rounded-xl font-bold text-white ${(!text.trim() || !cat) ? 'bg-gray-300' : 'bg-gradient-to-r from-indigo-600 to-purple-600'}`}
+                        >
+                            + Tambah Tugas
+                        </button>
+                    </div>
+                </div>
+            );
+        }
+        
+        // ==================== RENDER APP ====================
+        const rootElement = document.getElementById('root');
+        const root = ReactDOM.createRoot(rootElement);
+        root.render(<App />);
+        
+        // ==================== PWA SERVICE WORKER ====================
+        if ('serviceWorker' in navigator) {
+            window.addEventListener('load', () => {
+                // Simple service worker
+                const swContent = `
+                    self.addEventListener('install', e => {
+                        console.log('PWA Service Worker installing...');
+                        e.waitUntil(caches.open('focus-flow-v1').then(cache => cache.add('/')));
+                    });
+                    
+                    self.addEventListener('fetch', e => {
+                        e.respondWith(
+                            caches.match(e.request).then(response => response || fetch(e.request))
+                        );
+                    });
+                `;
+                
+                const blob = new Blob([swContent], { type: 'application/javascript' });
+                const swURL = URL.createObjectURL(blob);
+                
+                navigator.serviceWorker.register(swURL)
+                    .then(reg => console.log('PWA SW registered:', reg))
+                    .catch(err => console.log('PWA SW failed:', err));
+            });
+        }
+    </script>
+</body>
+</html>
